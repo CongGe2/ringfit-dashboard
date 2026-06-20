@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 
-// ── Ring Fit exercise database ──
+// ═══════════════════════════════════════
+//  Data & Helpers
+// ═══════════════════════════════════════
+
 const EXERCISES = [
   { name: '深蹲', color: 'blue', kcalPerMin: 12, joint: '注意膝盖', icon: '🦵', category: '腿部' },
   { name: '登山式', color: 'blue', kcalPerMin: 14, joint: '落地轻缓', icon: '⛰️', category: '腿部' },
@@ -15,22 +18,17 @@ const EXERCISES = [
 ];
 
 const WEEKLY_TEMPLATE = [
-  { day: '周一', main: '冒险', extra: '节奏 1 首' },
-  { day: '周二', main: '燃脂套餐', extra: '冒险 15min' },
-  { day: '周三', main: '冒险', extra: '' },
-  { day: '周四', main: '燃脂套餐', extra: '节奏 2 首' },
-  { day: '周五', main: '冒险', extra: '节奏 1 首' },
-  { day: '周六', main: '自由模式', extra: '轻量' },
-  { day: '周日', main: '休息', extra: '' },
+  { day: '周一', type: '冒险', extra: '节奏 1 首' },
+  { day: '周二', type: '燃脂套餐', extra: '冒险 15min' },
+  { day: '周三', type: '冒险', extra: '' },
+  { day: '周四', type: '燃脂套餐', extra: '节奏 2 首' },
+  { day: '周五', type: '冒险', extra: '节奏 1 首' },
+  { day: '周六', type: '自由', extra: '轻量' },
+  { day: '周日', type: '休息', extra: '' },
 ];
 
-// ── Helpers ──
-function calcBMI(weight, height) {
-  if (!height || height <= 0) return 0;
-  return weight / ((height / 100) ** 2);
-}
-
-function bmiCategory(bmi) {
+function calcBMI(w, h) { return h > 0 ? w / ((h / 100) ** 2) : 0; }
+function bmiCat(bmi) {
   if (bmi <= 0) return { label: '--', color: '#888' };
   if (bmi < 18.5) return { label: '偏瘦', color: '#60a5fa' };
   if (bmi < 24) return { label: '正常', color: '#4ade80' };
@@ -38,133 +36,194 @@ function bmiCategory(bmi) {
   if (bmi < 35) return { label: '肥胖一级', color: '#f97316' };
   return { label: '肥胖二级', color: '#ef4444' };
 }
-
-function calcBMR(weight, height, age) {
-  return Math.round(10 * weight + 6.25 * height - 5 * age + 5);
-}
-
+function calcBMR(w, h, age) { return Math.round(10 * w + 6.25 * h - 5 * age + 5); }
 function calcTDEE(bmr, freq) {
-  const factors = { 0: 1.2, 1: 1.2, 2: 1.375, 3: 1.375, 4: 1.55, 5: 1.55, 6: 1.725, 7: 1.9 };
-  return Math.round(bmr * (factors[Math.min(freq, 7)] || 1.375));
+  const f = { 0: 1.2, 1: 1.2, 2: 1.375, 3: 1.375, 4: 1.55, 5: 1.55, 6: 1.725, 7: 1.9 };
+  return Math.round(bmr * (f[Math.min(freq, 7)] || 1.375));
 }
-
-function recommendDuration(bmi, intensity) {
-  // BMI ≥ 35: 20-30min, BMI < 35: 25-45min, scaled by intensity
-  const base = bmi >= 35 ? 25 : 35;
-  return Math.round(base * (intensity / 20));
+function recDuration(bmi, intensity) {
+  return Math.round((bmi >= 35 ? 25 : 35) * (intensity / 20));
 }
-
-function recommendExercises(bmi) {
-  if (bmi >= 35) {
-    // joint-friendly: prioritize low-impact blue + yellow
-    return EXERCISES.filter(e => e.joint === '友好' || e.name === '登山式')
-      .sort((a, b) => b.kcalPerMin - a.kcalPerMin);
-  }
-  // general: all blue/yellow first
+function recExercises(bmi) {
   return [...EXERCISES].sort((a, b) => {
-    const order = { blue: 1, yellow: 2, red: 3, green: 4 };
-    return (order[a.color] || 5) - (order[b.color] || 5) || b.kcalPerMin - a.kcalPerMin;
+    if (bmi >= 35) {
+      const aSafe = a.joint === '友好' ? 0 : 1;
+      const bSafe = b.joint === '友好' ? 0 : 1;
+      if (aSafe !== bSafe) return aSafe - bSafe;
+    }
+    return b.kcalPerMin - a.kcalPerMin;
   });
 }
 
-// ── Load/Save ──
-function loadProfile() {
+// ═══════════════════════════════════════
+//  Default character
+// ═══════════════════════════════════════
+
+const DEFAULT_CHARACTERS = [
+  {
+    id: 'jin-chengxu',
+    name: '金承旭',
+    height: 182,
+    weight: 129.5,
+    age: 21,
+    freq: 6,
+    intensity: 19,
+    history: [{ date: '2026-06-20', weight: 129.5 }],
+  },
+];
+
+function loadCharacters() {
   try {
-    const raw = localStorage.getItem('ringfit_profile');
+    const raw = localStorage.getItem('ringfit_characters');
     if (raw) return JSON.parse(raw);
   } catch {}
-  return { height: 182, weight: 129.5, age: 21, freq: 6, intensity: 19 };
+  return DEFAULT_CHARACTERS;
+}
+function saveCharacters(chars) {
+  try { localStorage.setItem('ringfit_characters', JSON.stringify(chars)); } catch {}
 }
 
-function saveProfile(p) {
-  try { localStorage.setItem('ringfit_profile', JSON.stringify(p)); } catch {}
-}
+function genId() { return 'c' + Date.now() + Math.random().toString(36).slice(2, 6); }
 
-function loadHistory() {
-  try {
-    const raw = localStorage.getItem('ringfit_history');
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return [];
-}
+// ═══════════════════════════════════════
+//  Components
+// ═══════════════════════════════════════
 
-function saveHistory(h) {
-  try { localStorage.setItem('ringfit_history', JSON.stringify(h)); } catch {}
-}
-
-// ── Components ──
-
-function InputPanel({ profile, onChange, onSaveWeight }) {
-  const handle = (key) => (e) => onChange({ ...profile, [key]: Number(e.target.value) || profile[key] });
+// ── Character Card ──
+function CharCard({ char: c, onClick }) {
+  const bmi = calcBMI(c.weight, c.height);
+  const cat = bmiCat(bmi);
+  const bmr = calcBMR(c.weight, c.height, c.age);
 
   return (
-    <div className="input-panel">
-      <div className="input-group">
-        <label>身高 <span>cm</span></label>
-        <input type="number" value={profile.height} onChange={handle('height')} min="100" max="250" />
+    <div className="char-card" onClick={() => onClick(c)}>
+      <div className="char-avatar" style={{ borderColor: cat.color }}>
+        {c.name[0]}
       </div>
-      <div className="input-group">
-        <label>体重 <span>kg</span></label>
-        <input type="number" value={profile.weight} onChange={handle('weight')} step="0.1" min="30" max="300" />
+      <div className="char-name">{c.name}</div>
+      <div className="char-stats">
+        <span>{c.weight} kg</span>
+        <span className="char-dot">·</span>
+        <span>BMI {bmi.toFixed(1)}</span>
       </div>
-      <div className="input-group">
-        <label>年龄</label>
-        <input type="number" value={profile.age} onChange={handle('age')} min="10" max="99" />
+      <div className="char-bmr">每日消耗 ~{bmr} kcal</div>
+      <div className="char-badge" style={{ background: cat.color + '22', color: cat.color }}>
+        {cat.label}
       </div>
-      <div className="input-group">
-        <label>每周训练 <span>天</span></label>
-        <input type="number" value={profile.freq} onChange={handle('freq')} min="0" max="7" />
-      </div>
-      <div className="input-group">
-        <label>健身环<span>强度</span></label>
-        <div className="intensity-slider">
-          <input type="range" value={profile.intensity} onChange={handle('intensity')} min="1" max="30" />
-          <span className="intensity-val">Lv.{profile.intensity}</span>
-        </div>
-      </div>
-      <button className="btn-save" onClick={onSaveWeight}>
-        📝 记录今日体重
-      </button>
+      <div className="char-arrow">查看详情 →</div>
     </div>
   );
 }
 
+// ── Add Card ──
+function AddCard({ onClick }) {
+  return (
+    <div className="char-card add-card" onClick={onClick}>
+      <div className="add-icon">＋</div>
+      <div className="add-label">创建新角色</div>
+    </div>
+  );
+}
+
+// ── Character Form Modal ──
+function CharForm({ initial, onSave, onCancel }) {
+  const [form, setForm] = useState(initial || {
+    name: '', height: 170, weight: 70, age: 25, freq: 3, intensity: 15,
+  });
+
+  const set = (k) => (e) => setForm({ ...form, [k]: k === 'name' ? e.target.value : Number(e.target.value) || form[k] });
+
+  const handleSave = () => {
+    if (!form.name.trim()) return;
+    onSave({
+      ...form,
+      id: initial?.id || genId(),
+      history: initial?.history || [],
+    });
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>{initial ? '编辑角色' : '创建新角色'}</h2>
+        <div className="form-grid">
+          <div className="form-group">
+            <label>角色名</label>
+            <input type="text" value={form.name} onChange={set('name')} placeholder="输入名字" autoFocus />
+          </div>
+          <div className="form-group">
+            <label>身高 cm</label>
+            <input type="number" value={form.height} onChange={set('height')} min="100" max="250" />
+          </div>
+          <div className="form-group">
+            <label>体重 kg</label>
+            <input type="number" value={form.weight} onChange={set('weight')} step="0.1" min="30" max="300" />
+          </div>
+          <div className="form-group">
+            <label>年龄</label>
+            <input type="number" value={form.age} onChange={set('age')} min="10" max="99" />
+          </div>
+          <div className="form-group">
+            <label>每周训练天数</label>
+            <input type="number" value={form.freq} onChange={set('freq')} min="0" max="7" />
+          </div>
+          <div className="form-group">
+            <label>健身环强度 (1-30)</label>
+            <div className="intensity-row">
+              <input type="range" value={form.intensity} onChange={set('intensity')} min="1" max="30" style={{ flex: 1 }} />
+              <span className="int-val">Lv.{form.intensity}</span>
+            </div>
+          </div>
+        </div>
+        <div className="form-actions">
+          <button className="btn-cancel" onClick={onCancel}>取消</button>
+          <button className="btn-confirm" onClick={handleSave} disabled={!form.name.trim()}>
+            保存角色
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── BMI Gauge ──
 function BMIGauge({ bmi }) {
   const angle = Math.min(Math.max(bmi, 0) / 45, 1) * 180;
   const rad = (angle - 90) * (Math.PI / 180);
-  const r = 120, cx = 155, cy = 140;
-  const nx = cx + r * 0.72 * Math.cos(rad);
-  const ny = cy + r * 0.72 * Math.sin(rad);
-  const cat = bmiCategory(bmi);
+  const r = 110, cx = 145, cy = 130;
+  const nx = cx + r * 0.7 * Math.cos(rad);
+  const ny = cy + r * 0.7 * Math.sin(rad);
+  const cat = bmiCat(bmi);
 
   return (
     <div className="gauge-card">
       <h3>BMI 指数</h3>
-      <svg viewBox="0 0 310 195" className="gauge-svg">
+      <svg viewBox="0 0 290 180" className="gauge-svg">
         <defs>
-          <linearGradient id="bmiGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <linearGradient id="bmiGrad2" x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#4ade80" />
             <stop offset="35%" stopColor="#fbbf24" />
             <stop offset="60%" stopColor="#f97316" />
             <stop offset="100%" stopColor="#ef4444" />
           </linearGradient>
         </defs>
-        <path d="M 25 140 A 130 130 0 0 1 285 140" fill="none" stroke="url(#bmiGrad)" strokeWidth="18" strokeLinecap="round" />
+        <path d="M 25 130 A 120 120 0 0 1 265 130" fill="none" stroke="url(#bmiGrad2)" strokeWidth="16" strokeLinecap="round" />
         {[18.5, 24, 28, 35].map(v => {
           const a = ((v / 45) * 180 - 90) * (Math.PI / 180);
-          return <text key={v} x={cx + (r + 17) * Math.cos(a)} y={cy + (r + 17) * Math.sin(a)} textAnchor="middle" fill="#888" fontSize="10">{v}</text>;
+          return <text key={v} x={cx + (r + 15) * Math.cos(a)} y={cy + (r + 15) * Math.sin(a)} textAnchor="middle" fill="#888" fontSize="9">{v}</text>;
         })}
         <line x1={cx} y1={cy} x2={nx} y2={ny} stroke="#fff" strokeWidth="3" strokeLinecap="round" />
-        <circle cx={cx} cy={cy} r="6" fill="#fff" />
-        <text x={cx} y={cy - 20} textAnchor="middle" fill="#fff" fontSize="30" fontWeight="bold">
+        <circle cx={cx} cy={cy} r="5" fill="#fff" />
+        <text x={cx} y={cy - 18} textAnchor="middle" fill="#fff" fontSize="28" fontWeight="bold">
           {bmi > 0 ? bmi.toFixed(1) : '--'}
         </text>
-        <text x={cx} y={cy + 5} textAnchor="middle" fill={cat.color} fontSize="14" fontWeight="600">{cat.label}</text>
+        <text x={cx} y={cy + 6} textAnchor="middle" fill={cat.color} fontSize="13" fontWeight="600">{cat.label}</text>
       </svg>
     </div>
   );
 }
 
+// ── Stat Card ──
 function StatCard({ label, value, unit, color, info }) {
   return (
     <div className="stat-card" style={{ borderLeftColor: color }}>
@@ -176,27 +235,28 @@ function StatCard({ label, value, unit, color, info }) {
   );
 }
 
-function WorkoutPlanner({ profile, bmi }) {
-  const duration = recommendDuration(bmi, profile.intensity);
-  const exercises = recommendExercises(bmi).slice(0, 5);
-  const totalKcal = Math.round(exercises.reduce((s, e) => s + e.kcalPerMin * (duration / exercises.length), 0));
+// ── Workout Planner ──
+function WorkoutPlanner({ char: c, bmi }) {
+  const dur = recDuration(bmi, c.intensity);
+  const exercises = recExercises(bmi).slice(0, 5);
+  const kcal = Math.round(exercises.reduce((s, e) => s + e.kcalPerMin * (dur / exercises.length), 0));
 
   return (
-    <div className="card planner-card">
-      <h3>🎯 今日推荐训练</h3>
-      <p className="card-sub">根据 BMI {bmi.toFixed(1)} · 强度 Lv.{profile.intensity} 自动生成</p>
+    <div className="card">
+      <h3>🎯 今日推荐训练 · {c.name}</h3>
+      <p className="card-sub">BMI {bmi.toFixed(1)} · 强度 Lv.{c.intensity}</p>
       <div className="planner-grid">
         <div className="planner-duration">
-          <span className="planner-big">{duration}</span>
-          <span className="planner-unit">分钟有效运动</span>
-          <span className="planner-kcal">预计消耗 ~{totalKcal} kcal</span>
+          <span className="planner-big">{dur}</span>
+          <span className="planner-unit">分钟</span>
+          <span className="planner-kcal">~{kcal} kcal</span>
         </div>
         <div className="planner-exercises">
-          {exercises.map((ex, i) => (
+          {exercises.map(ex => (
             <div key={ex.name} className={`planner-ex planner-ex-${ex.color}`}>
               <span className="planner-ex-icon">{ex.icon}</span>
               <span className="planner-ex-name">{ex.name}</span>
-              <span className="planner-ex-time">~{Math.round(duration / exercises.length)}min</span>
+              <span className="planner-ex-time">~{Math.round(dur / exercises.length)}min</span>
             </div>
           ))}
         </div>
@@ -205,25 +265,26 @@ function WorkoutPlanner({ profile, bmi }) {
   );
 }
 
+// ── Exercise Ranking ──
 function ExerciseRanking({ bmi }) {
-  const ranked = recommendExercises(bmi);
-  const maxKcal = Math.max(...ranked.map(e => e.kcalPerMin));
-  const colors = { blue: '#3b82f6', yellow: '#eab308', red: '#ef4444', green: '#22c55e' };
+  const ranked = recExercises(bmi);
+  const maxK = Math.max(...ranked.map(e => e.kcalPerMin));
+  const cols = { blue: '#3b82f6', yellow: '#eab308', red: '#ef4444', green: '#22c55e' };
 
   return (
     <div className="card">
       <h3>🏆 动作燃脂排行</h3>
-      <p className="card-sub">按每分钟消耗自动排序 · 颜色 = 游戏内技能分类</p>
+      <p className="card-sub">BMI {bmi >= 35 ? '≥35 — 自动优先低冲击动作' : '<35 — 燃脂效率优先'}</p>
       <div className="exercise-list">
         {ranked.map((ex, i) => (
           <div key={ex.name} className="exercise-row">
             <span className="ex-rank">#{i + 1}</span>
             <span className="ex-icon">{ex.icon}</span>
             <span className="ex-name">{ex.name}</span>
-            <span className="ex-tag" style={{ background: colors[ex.color] + '22', color: colors[ex.color] }}>{ex.category}</span>
-            <span className="ex-joint" title={ex.joint}>{ex.joint}</span>
+            <span className="ex-tag" style={{ background: cols[ex.color] + '22', color: cols[ex.color] }}>{ex.category}</span>
+            <span className="ex-joint">{ex.joint}</span>
             <div className="ex-bar-track">
-              <div className="ex-bar-fill" style={{ width: `${(ex.kcalPerMin / maxKcal) * 100}%`, background: colors[ex.color], boxShadow: `0 0 12px ${colors[ex.color]}44` }} />
+              <div className="ex-bar-fill" style={{ width: `${(ex.kcalPerMin / maxK) * 100}%`, background: cols[ex.color], boxShadow: `0 0 10px ${cols[ex.color]}33` }} />
             </div>
             <span className="ex-kcal">{ex.kcalPerMin} <small>kcal/min</small></span>
           </div>
@@ -233,25 +294,24 @@ function ExerciseRanking({ bmi }) {
   );
 }
 
-function WeeklyPlan({ profile, bmi }) {
-  const dur = recommendDuration(bmi, profile.intensity);
+// ── Weekly Plan ──
+function WeeklyPlan({ char: c, bmi }) {
+  const dur = recDuration(bmi, c.intensity);
   const today = new Date().getDay();
-  const todayIdx = today === 0 ? 6 : today - 1;
+  const tIdx = today === 0 ? 6 : today - 1;
 
   return (
     <div className="card">
-      <h3>📅 本周训练计划</h3>
-      <p className="card-sub">参考时长 {dur}min/天 · 你的目标 {profile.freq}天/周</p>
+      <h3>📅 周训练计划 · {c.name}</h3>
       <div className="week-grid">
-        {WEEKLY_TEMPLATE.map((plan, i) => {
-          const isToday = i === todayIdx;
-          const isRest = i >= profile.freq;
+        {WEEKLY_TEMPLATE.map((p, i) => {
+          const isToday = i === tIdx;
+          const isRest = i >= c.freq;
           return (
-            <div key={plan.day} className={`day-card ${isToday ? 'today' : ''} ${isRest ? 'rest' : ''}`}>
-              <div className="day-name">{plan.day}</div>
-              <div className="day-main">{isRest ? '休息' : plan.main}</div>
-              <div className="day-extra">{isRest ? '' : plan.extra}</div>
-              {!isRest && <div className="day-target">🔥 ~{Math.round(dur * (plan.main.includes('燃脂') ? 1.2 : plan.main === '自由模式' ? 0.6 : 1) * 8)} kcal</div>}
+            <div key={p.day} className={`day-card ${isToday ? 'today' : ''} ${isRest ? 'rest' : ''}`}>
+              <div className="day-name">{p.day}</div>
+              <div className="day-main">{isRest ? '休息' : p.type}</div>
+              <div className="day-extra">{isRest ? '' : p.extra}</div>
             </div>
           );
         })}
@@ -260,131 +320,174 @@ function WeeklyPlan({ profile, bmi }) {
   );
 }
 
-function WeightHistory({ history, onClear }) {
-  if (!history.length) return null;
+// ── Weight History ──
+function WeightHistory({ char: c, onUpdate }) {
+  const handleLog = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const filtered = c.history.filter(h => h.date !== today);
+    onUpdate({ ...c, history: [...filtered, { date: today, weight: c.weight }] });
+  };
 
-  const sorted = [...history].sort((a, b) => new Date(a.date) - new Date(b.date));
-  const minW = Math.min(...sorted.map(h => h.weight)) - 2;
-  const maxW = Math.max(...sorted.map(h => h.weight)) + 2;
+  const sorted = [...c.history].sort((a, b) => new Date(a.date) - new Date(b.date));
 
   return (
     <div className="card">
       <div className="history-header">
-        <h3>📈 体重记录</h3>
-        {history.length > 0 && (
-          <button className="btn-clear" onClick={onClear}>清空</button>
-        )}
+        <h3>📈 体重记录 · {c.name}</h3>
+        <button className="btn-save-sm" onClick={handleLog}>📝 记录今日 {c.weight}kg</button>
       </div>
       {sorted.length > 1 ? (
-        <div className="history-chart">
-          {sorted.map((h, i) => {
-            const hPct = ((h.weight - minW) / (maxW - minW)) * 100;
-            const prev = i > 0 ? sorted[i - 1].weight : h.weight;
-            const diff = h.weight - prev;
-            return (
-              <div key={h.date} className="hist-bar-group" title={`${h.date}: ${h.weight}kg`}>
-                <span className="hist-weight">{h.weight}</span>
-                {i > 0 && diff !== 0 && (
-                  <span className={`hist-diff ${diff < 0 ? 'down' : 'up'}`}>{diff > 0 ? '+' : ''}{diff.toFixed(1)}</span>
-                )}
-                <div className="hist-bar" style={{ height: `${hPct}%` }} />
-                <span className="hist-date">{h.date.slice(5)}</span>
-              </div>
-            );
-          })}
-        </div>
+        <>
+          <div className="history-chart">
+            {sorted.map((h, i) => {
+              const minW = Math.min(...sorted.map(x => x.weight)) - 2;
+              const maxW = Math.max(...sorted.map(x => x.weight)) + 2;
+              const hPct = ((h.weight - minW) / (maxW - minW)) * 100;
+              const prev = i > 0 ? sorted[i - 1].weight : h.weight;
+              const diff = h.weight - prev;
+              return (
+                <div key={h.date} className="hist-bar-group" title={`${h.date}: ${h.weight}kg`}>
+                  <span className="hist-weight">{h.weight}</span>
+                  {i > 0 && diff !== 0 && (
+                    <span className={`hist-diff ${diff < 0 ? 'down' : 'up'}`}>{diff > 0 ? '+' : ''}{diff.toFixed(1)}</span>
+                  )}
+                  <div className="hist-bar" style={{ height: `${hPct}%` }} />
+                  <span className="hist-date">{h.date.slice(5)}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="history-trend">
+            {(() => {
+              const d = sorted[0].weight - sorted[sorted.length - 1].weight;
+              return d > 0 ? `📉 累计减重 ${d.toFixed(1)} kg 🎉` : d < 0 ? `📈 上升 ${Math.abs(d).toFixed(1)} kg` : '➡️ 持平';
+            })()}
+          </div>
+        </>
       ) : (
-        <div className="history-single">
-          {sorted.map(h => (
-            <div key={h.date} className="hist-entry">
-              <span className="hist-date">{h.date}</span>
-              <span className="hist-weight-big">{h.weight} kg</span>
-              <span className="hist-bmi">BMI {calcBMI(h.weight, loadProfile().height).toFixed(1)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      {sorted.length > 1 && (
-        <div className="history-trend">
-          {(() => {
-            const first = sorted[0].weight, last = sorted[sorted.length - 1].weight;
-            const total = first - last;
-            return total > 0 ? `📉 累计减重 ${total.toFixed(1)} kg 🎉` : total < 0 ? `📈 体重上升 ${Math.abs(total).toFixed(1)} kg` : '➡️ 体重持平';
-          })()}
-        </div>
+        <p className="card-sub" style={{ marginTop: 8 }}>还没有体重记录，点上方按钮开始追踪</p>
       )}
     </div>
   );
 }
 
-// ── App ──
-export default function App() {
-  const [profile, setProfile] = useState(loadProfile);
-  const [history, setHistory] = useState(loadHistory);
-
-  useEffect(() => { saveProfile(profile); }, [profile]);
-  useEffect(() => { saveHistory(history); }, [history]);
-
-  const bmi = calcBMI(profile.weight, profile.height);
-  const bmr = calcBMR(profile.weight, profile.height, profile.age);
-  const tdee = calcTDEE(bmr, profile.freq);
-  const targetKcal = Math.round(tdee * 0.78); // ~22% deficit
-  const cat = bmiCategory(bmi);
-
-  const handleSaveWeight = useCallback(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    setHistory(prev => {
-      const filtered = prev.filter(h => h.date !== today);
-      return [...filtered, { date: today, weight: profile.weight, bmi: +bmi.toFixed(1) }];
-    });
-  }, [profile.weight, bmi]);
-
-  const handleClearHistory = useCallback(() => {
-    if (window.confirm('确认清空所有体重记录？')) setHistory([]);
-  }, []);
+// ── Character Detail View ──
+function CharacterView({ char, onBack, onUpdate, onDelete }) {
+  const bmi = calcBMI(char.weight, char.height);
+  const bmr = calcBMR(char.weight, char.height, char.age);
+  const tdee = calcTDEE(bmr, char.freq);
+  const target = Math.round(tdee * 0.78);
+  const cat = bmiCat(bmi);
+  const [editing, setEditing] = useState(false);
 
   return (
-    <div className="app">
-      {/* Header */}
-      <header className="header">
-        <div className="header-left">
-          <h1><span className="ring-emoji">🔥</span> RingFit Dashboard</h1>
-          <p className="subtitle">健身环数据追踪 · 输入数据即时计算</p>
+    <div className="detail-view">
+      <div className="detail-header">
+        <button className="btn-back" onClick={onBack}>← 返回角色列表</button>
+        <div className="detail-actions">
+          <button className="btn-edit" onClick={() => setEditing(true)}>✏️ 编辑</button>
+          {char.id !== 'jin-chengxu' && (
+            <button className="btn-delete" onClick={() => { if (window.confirm(`删除 ${char.name}？`)) onDelete(char.id); }}>
+              🗑 删除
+            </button>
+          )}
         </div>
-      </header>
+      </div>
 
-      {/* Input Panel */}
-      <InputPanel profile={profile} onChange={setProfile} onSaveWeight={handleSaveWeight} />
+      <h2 className="detail-name">{char.name} <span className="detail-id">Lv.{char.intensity}</span></h2>
 
-      {/* Stats Row */}
       <section className="stats-row">
-        <StatCard label="当前体重" value={profile.weight} unit="kg" color="#f97316" info={`${cat.label}`} />
+        <StatCard label="体重" value={char.weight} unit="kg" color="#f97316" info={cat.label} />
         <StatCard label="基础代谢" value={bmr} unit="kcal/天" color="#3b82f6" />
         <StatCard label="维持热量" value={tdee} unit="kcal/天" color="#a78bfa" />
-        <StatCard label="减脂目标" value={targetKcal} unit="kcal/天" color="#22c55e" info={`缺口 ~${tdee - targetKcal} kcal`} />
+        <StatCard label="减脂目标" value={target} unit="kcal/天" color="#22c55e" info={`缺口 ~${tdee - target}`} />
       </section>
 
-      {/* BMI + Workout Planner */}
       <section className="middle-row">
         <BMIGauge bmi={bmi} />
-        <WorkoutPlanner profile={profile} bmi={bmi} />
+        <WorkoutPlanner char={char} bmi={bmi} />
       </section>
 
-      {/* Exercise Ranking */}
       <ExerciseRanking bmi={bmi} />
+      <WeeklyPlan char={char} bmi={bmi} />
+      <WeightHistory char={char} onUpdate={onUpdate} />
 
-      {/* Weekly Plan */}
-      <WeeklyPlan profile={profile} bmi={bmi} />
+      {editing && (
+        <CharForm
+          initial={char}
+          onSave={(updated) => { onUpdate(updated); setEditing(false); }}
+          onCancel={() => setEditing(false)}
+        />
+      )}
+    </div>
+  );
+}
 
-      {/* Weight History */}
-      <WeightHistory history={history} onClear={handleClearHistory} />
+// ═══════════════════════════════════════
+//  App — Home screen (character cards)
+// ═══════════════════════════════════════
 
-      {/* Footer */}
-      <footer className="footer">
-        <span>Vibe Coding · Claude Code + Vite + React</span>
-        <span className="footer-divider">|</span>
-        <span>数据存储在你的浏览器中，不会上传</span>
-      </footer>
+export default function App() {
+  const [characters, setCharacters] = useState(loadCharacters);
+  const [selected, setSelected] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+
+  useEffect(() => { saveCharacters(characters); }, [characters]);
+
+  const updateChar = useCallback((updated) => {
+    setCharacters(prev => prev.map(c => c.id === updated.id ? updated : c));
+  }, []);
+
+  const deleteChar = useCallback((id) => {
+    setCharacters(prev => prev.filter(c => c.id !== id));
+    setSelected(null);
+  }, []);
+
+  const createChar = useCallback((newChar) => {
+    setCharacters(prev => [...prev, newChar]);
+    setShowForm(false);
+  }, []);
+
+  // ── Home: character cards ──
+  if (!selected) {
+    return (
+      <div className="app">
+        <header className="header">
+          <div>
+            <h1>🔥 RingFit 角色管理</h1>
+            <p className="subtitle">点击角色查看详情 · 数据存于浏览器</p>
+          </div>
+        </header>
+
+        <div className="char-grid">
+          {characters.map(c => (
+            <CharCard key={c.id} char={c} onClick={() => setSelected(c)} />
+          ))}
+          <AddCard onClick={() => setShowForm(true)} />
+        </div>
+
+        {showForm && (
+          <CharForm onSave={createChar} onCancel={() => setShowForm(false)} />
+        )}
+
+        <footer className="footer">
+          <span>Vibe Coding · Claude Code + Vite + React</span>
+          <span className="footer-divider">|</span>
+          <span>{characters.length} 位角色</span>
+        </footer>
+      </div>
+    );
+  }
+
+  // ── Detail: character dashboard ──
+  return (
+    <div className="app">
+      <CharacterView
+        char={selected}
+        onBack={() => setSelected(null)}
+        onUpdate={updateChar}
+        onDelete={deleteChar}
+      />
     </div>
   );
 }
